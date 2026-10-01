@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Map Quiz Maker</title>
+  <!-- Shows any startup error on screen so a blank page is never a mystery -->
+  <script>
+    window.addEventListener("error", function (e) {
+      var el = document.getElementById("err");
+      if (!el) {
+        el = document.createElement("pre"); el.id = "err";
+        el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;margin:0;padding:12px 16px;background:#7a1f12;color:#fff;font:13px/1.4 monospace;white-space:pre-wrap";
+        document.documentElement.appendChild(el);
+      }
+      var t = e.target || {};
+      el.textContent += (e.message || "Could not load " + (t.src || t.href || "a file") + " (check the file is uploaded and the name matches)") + "\n";
+    }, true);
+  </script>
+  <link rel="stylesheet" href="leaflet.css" />
+  <script src="leaflet.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- 1 · LIBRARY -->
+  <section id="s-library" class="screen page">
+    <header class="lib-head">
+      <div><h1>Map Quiz Maker</h1><p>Build location quizzes on a blank world map, then hand them over to play.</p><p id="sync" class="sync"></p></div>
+      <button class="b pri" data-act="new" data-ic="plus">New quiz</button>
+    </header>
+    <div id="lib-grid" class="grid"></div>
+  </section>
+
+  <!-- 2 · EDITOR -->
+  <section id="s-editor" class="screen overlay" hidden>
+    <header class="bar">
+      <button class="b icon" data-act="back" title="Back to library" aria-label="Back to library" data-ic="back"></button>
+      <input id="ed-title" class="title-in" data-in="title" aria-label="Quiz title" maxlength="60" />
+      <span id="ed-status" class="status">Saved</span>
+      <button class="b pri" data-act="preview" data-ic="play">Play</button>
+    </header>
+    <nav class="rail" aria-label="Tools">
+      <button class="b icon" data-act="tool" data-v="select" title="Select" aria-label="Select" data-ic="cursor"></button>
+      <button class="b icon" data-act="tool" data-v="point" title="Place points" aria-label="Place points" data-ic="pin"></button>
+      <button class="b icon" data-act="tool" data-v="area" title="Draw areas" aria-label="Draw areas" data-ic="area"></button>
+    </nav>
+    <div id="strip" class="strip"></div>
+    <aside class="dock">
+      <div class="tabs">
+        <button data-act="tab" data-v="places">Places <em id="n-places">0</em></button>
+        <button data-act="tab" data-v="quiz">Quiz settings</button>
+      </div>
+      <div id="tab-places" class="pane">
+        <p id="empty" class="empty">Nothing on the map yet. Pick the pin or area tool, then click the map.</p>
+        <ul id="list"></ul>
+        <button id="clear" class="link" data-act="clear" hidden>Remove all places</button>
+      </div>
+      <div id="tab-quiz" class="pane" hidden>
+        <label class="field">Quiz type
+          <select id="q-type" data-in="type">
+            <option value="find">Find the Location</option>
+            <option value="name">Name the Location</option>
+          </select>
+        </label>
+        <div class="opt"><div><b>Click to reveal</b><p>Players click a point or area to see its answer. Turns the quiz into study mode.</p></div>
+          <button class="switch" role="switch" data-act="flag" data-v="reveal" aria-label="Click to reveal"><span></span></button></div>
+        <div class="opt"><div><b>Shuffle questions</b><p>Ask places in a random order each round.</p></div>
+          <button class="switch" role="switch" data-act="flag" data-v="shuffle" aria-label="Shuffle questions"><span></span></button></div>
+        <label class="field" id="region-f" hidden>Map view <select id="q-region" data-in="region"></select></label>
+      </div>
+    </aside>
+  </section>
+
+  <!-- 3 · PLAY -->
+  <section id="s-play" class="screen overlay" hidden>
+    <header class="bar">
+      <button class="b" data-act="quit" data-ic="back">Quit</button>
+      <h2 id="pl-title" class="bar-title"></h2>
+      <span id="pl-prog" class="status"></span>
+    </header>
+    <div class="prog"><i id="pl-bar"></i></div>
+    <div id="pl-card" class="pcard"></div>
+  </section>
+
+  <!-- 4 · RESULTS -->
+  <section id="s-results" class="screen page" hidden>
+    <div class="res">
+      <p class="eyebrow">Round complete</p>
+      <h1 id="r-score"></h1>
+      <p id="r-note" class="lede"></p>
+      <ol id="r-list" class="review"></ol>
+      <div class="acts">
+        <button class="b pri" data-act="again" data-ic="retry">Play again</button>
+        <button class="b" data-act="resback">Back</button>
+      </div>
+    </div>
+  </section>
+
+  <script src="supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

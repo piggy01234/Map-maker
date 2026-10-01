@@ -22,6 +22,8 @@ const PATHS = {
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>', check: '<path d="M5 12l5 5 9-10"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
   retry: '<path d="M3 12a9 9 0 109-9 9 9 0 00-7 3M3 4v5h5"/>',
+  zoomIn: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
+  zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
 };
 const ic = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${PATHS[n]}</svg>`;
 $$("[data-ic]").forEach((el) => el.insertAdjacentHTML("afterbegin", ic(el.dataset.ic)));
@@ -38,19 +40,34 @@ const V = { screen: "library", tool: "point", draft: [], sel: null, revealed: {}
 // Quizzes always save to this device. When config.js has real Supabase values they also sync to the cloud.
 const CFG = window.SUPABASE_CONFIG || {};
 let sb = null, cfgError = "";
-try {
-  if (window.supabase && CFG.url && CFG.anonKey && !CFG.url.includes("YOUR-PROJECT")) sb = window.supabase.createClient(CFG.url, CFG.anonKey);
-} catch (e) { cfgError = "Supabase URL looks wrong (it must start with https://). Saving on this device only"; console.warn(e); }
+if (!window.supabase) cfgError = "The Supabase library didn't load. Check the supabase script line in index.html. Saving on this device only";
+else if (!CFG.url || !CFG.anonKey || /YOUR-|PASTE-/.test(CFG.url + CFG.anonKey)) cfgError = "Add your Supabase URL and key in config.js to sync. Saving on this device only";
+else {
+  try { sb = window.supabase.createClient(CFG.url, CFG.anonKey); }
+  catch (e) { cfgError = "Supabase URL looks wrong (it must start with https://). Saving on this device only"; console.warn(e); }
+}
 let CLOUD = false;
 const timers = {};
 
 function setSync(text, on) { const el = $("#sync"); if (el) { el.textContent = text; el.classList.toggle("on", !!on); } }
 
+// Turn Supabase errors into a plain-English next step (shown under the title on the library page)
+function explain(e) {
+  const m = String((e && (e.message || e.error_description)) || e);
+  if (/anonymous/i.test(m)) return "Anonymous sign-ins are off. Turn them on in Supabase: Authentication > Sign In / Providers.";
+  if (/schema cache|does not exist|relation/i.test(m)) return "The quizzes table wasn't found. Run the setup SQL in Supabase.";
+  if (/row-level security|violates/i.test(m)) return "Supabase blocked the save (row-level security). Re-run the policies from the setup SQL.";
+  if (/api key|apikey|jwt|forbidden/i.test(m)) return "Supabase rejected the key. Check anonKey in config.js (use the publishable key).";
+  if (/fetch|network/i.test(m)) return "Couldn't reach Supabase. Check the URL in config.js.";
+  return m;
+}
+
 async function pushQuiz(q) {
   if (!CLOUD) return;
   const { id, title, updated, ...data } = q;
   const { error } = await sb.from("quizzes").upsert({ id, title, data, updated_at: new Date(updated).toISOString() });
-  if (error) console.warn("Supabase save failed:", error.message);
+  if (error) { console.warn("Supabase save failed:", error.message); setSync("Cloud save failed: " + explain(error)); }
+  else setSync("Synced with Supabase", true);
   if (Q === q) $("#ed-status").textContent = error ? "Saved on this device only" : "Saved";
 }
 
@@ -70,11 +87,12 @@ async function initCloud() {
     const have = new Set(cloud.map((q) => q.id));
     const localOnly = LIB.filter((q) => !have.has(q.id));      // first run: upload what was saved on this device
     LIB = [...cloud, ...localOnly]; persist(); CLOUD = true;
+    if (Q) Q = LIB.find((x) => x.id === Q.id) || Q;
     localOnly.forEach(pushQuiz);
     setSync("Synced with Supabase", true);
   } catch (e) {
     console.warn("Supabase unavailable:", e.message || e);
-    setSync("Cloud unavailable. Saving on this device only");
+    setSync("Cloud unavailable: " + explain(e));
   }
   if (V.screen === "library") renderLibrary();
 }
@@ -89,13 +107,14 @@ const modeLabel = (q) => (q.reveal ? "Study mode" : q.type === "find" ? "Find th
 // ---------- Map ----------
 const map = L.map("map", {
   crs: L.CRS.Simple, minZoom: -2, maxZoom: 2, zoomSnap: 0.25, zoomDelta: 0.5,
-  maxBounds: L.latLngBounds(FULL).pad(0.4), maxBoundsViscosity: 0.8,
+  maxBounds: L.latLngBounds(FULL).pad(0.12), maxBoundsViscosity: 1, renderer: L.svg({ padding: 1 }),
   doubleClickZoom: false, zoomControl: false, attributionControl: false,
 });
-L.imageOverlay(WORLD_IMAGE, FULL).addTo(map);
+L.imageOverlay(WORLD_IMAGE, FULL, { className: "world" }).addTo(map);
 L.control.zoom({ position: "bottomleft" }).addTo(map);
 const shapes = L.layerGroup().addTo(map);
 const draftLayer = L.layerGroup().addTo(map);
+const handleLayer = L.layerGroup().addTo(map);
 
 function fit() {
   const side = innerWidth > 760 && V.screen === "editor" ? 340 : 16;
@@ -108,19 +127,61 @@ function colorOf(it) {
   return m === "ok" ? GREEN : m === "bad" ? INK : m === "ask" ? GOLD : V.revealed[it.id] ? GREEN : RED;
 }
 
+const clampLL = (ll) => [Math.min(H, Math.max(0, ll.lat)), Math.min(W, Math.max(0, ll.lng))];
+const inMap = (ll) => ll.lat >= 0 && ll.lat <= H && ll.lng >= 0 && ll.lng <= W;
+const dot = (cls, n) => L.divIcon({ className: "hdl " + cls, iconSize: [n, n] });
+const layers = new Map();      // item id -> Leaflet layer. Updated in place so nothing flickers.
+
 function drawShapes() {
-  shapes.clearLayers();
-  if (!Q || !["editor", "play"].includes(V.screen)) return;
-  Q.items.forEach((it) => {
-    const c = colorOf(it);
-    const opts = { color: c, fillColor: c, fillOpacity: it.type === "area" ? 0.4 : 0.92, weight: c === GOLD ? 3 : 2, bubblingMouseEvents: false };
-    const layer = it.type === "point" ? L.circleMarker(it.pts[0], { ...opts, radius: Q.size, color: "#fff", weight: 2 }).setStyle({ fillColor: c }) : L.polygon(it.pts, opts);
-    layer.on("click", (e) => onShape(it, e));
+  const live = Q && ["editor", "play"].includes(V.screen) ? Q.items : [];
+  const ids = new Set(live.map((it) => it.id));
+  for (const [id, l] of layers) if (!ids.has(id)) { shapes.removeLayer(l); layers.delete(id); }
+  live.forEach((it) => {
+    const c = colorOf(it), pt = it.type === "point";
+    const style = pt ? { color: "#fff", weight: 2, fillColor: c, fillOpacity: 0.92 }
+                     : { color: c, weight: c === GOLD ? 3 : 2, fillColor: c, fillOpacity: 0.4 };
+    let l = layers.get(it.id);
+    if (!l) {
+      l = pt ? L.circleMarker(it.pts[0], { ...style, radius: Q.size, bubblingMouseEvents: false })
+             : L.polygon(it.pts, { ...style, bubblingMouseEvents: false });
+      l.on("click", (e) => onShape(it, e));
+      l.addTo(shapes); layers.set(it.id, l);
+    } else {
+      l.setStyle(style);
+      if (pt) { l.setRadius(Q.size); l.setLatLng(it.pts[0]); } else l.setLatLngs(it.pts);
+    }
     const named = V.screen === "editor" || V.revealed[it.id] || (P && ["ok", "bad"].includes(P.mark[it.id]));
-    if (named) layer.bindTooltip(esc(it.name || "Unnamed"), { permanent: true, direction: "top" });
-    layer.addTo(shapes);
+    const text = esc(it.name || "Unnamed");
+    if (named) { if (l.getTooltip()) l.setTooltipContent(text); else l.bindTooltip(text, { permanent: true, direction: "top" }); }
+    else if (l.getTooltip()) l.unbindTooltip();
   });
   $("#map").style.cursor = V.screen === "editor" && V.tool !== "select" ? "crosshair" : "";
+  drawHandles();
+}
+
+// Select tool: the selected shape gets drag handles so it can be moved or reshaped
+function drawHandles() {
+  handleLayer.clearLayers();
+  const editing = V.screen === "editor" && V.tool === "select";
+  if (editing) renderStrip();
+  const it = editing && Q.items.find((x) => x.id === V.sel);
+  const lyr = it && layers.get(it.id);
+  if (!lyr) return;
+  const apply = () => (it.type === "point" ? lyr.setLatLng(it.pts[0]) : lyr.setLatLngs(it.pts));
+  const done = () => { touch(); if (it.type === "area") { lyr.closeTooltip(); lyr.openTooltip(); } drawHandles(); };
+  it.pts.forEach((p, i) => {
+    const h = L.marker(p, { draggable: true, icon: dot("", 16) }).addTo(handleLayer);
+    h.on("drag", () => { it.pts[i] = clampLL(h.getLatLng()); apply(); });
+    h.on("dragend", done);
+    if (it.type === "area") h.on("dblclick", () => { if (it.pts.length > 3) { it.pts.splice(i, 1); apply(); done(); } });
+  });
+  if (it.type !== "area") return;
+  it.pts.forEach((p, i) => {                              // faint dots on each edge: drag or click to add a corner
+    const q = it.pts[(i + 1) % it.pts.length];
+    const h = L.marker([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], { draggable: true, icon: dot("mid", 10) }).addTo(handleLayer);
+    const insert = () => { it.pts.splice(i + 1, 0, clampLL(h.getLatLng())); apply(); done(); };
+    h.on("dragend", insert); h.on("click", insert);
+  });
 }
 
 function drawDraft() {
@@ -205,7 +266,12 @@ function renderStrip() {
          <button class="b pri" data-act="finish" ${V.draft.length < 3 ? "disabled" : ""}>${ic("check")}Close shape</button>
          <button class="b" data-act="cancel">${ic("x")}Cancel</button>`
       : `<span>Click to add corners. Click the first dot or press Enter to close.</span>`;
-  } else s.innerHTML = `<span>Click a place on the map or in the list to select it.</span>`;
+  } else {
+    const it = Q.items.find((x) => x.id === V.sel);
+    s.innerHTML = !it ? `<span>Click a place on the map or in the list to edit it.</span>`
+      : it.type === "point" ? `<span>Drag the dot to move this point.</span>`
+      : `<span>Drag a corner to reshape. Drag a faint dot to add a corner. Double-click a corner to remove it.</span>`;
+  }
 }
 
 function addItem(it) { Q.items.push(it); V.sel = it.id; touch(); renderList(); drawShapes(); }
@@ -219,6 +285,7 @@ function finishArea() {
 function mapClick(ll) {
   if (V.screen !== "editor") return;
   if (V.tool === "select") { V.sel = null; hiliteRows(); drawShapes(); return; }
+  if (!inMap(ll)) return;
   if (V.tool === "point") return addItem({ id: uid(), type: "point", pts: [[ll.lat, ll.lng]], name: `Place ${Q.items.length + 1}` });
   const near = V.draft.length >= 3 && map.latLngToContainerPoint(ll).distanceTo(map.latLngToContainerPoint(V.draft[0])) < 14;
   if (near) return finishArea();
@@ -254,7 +321,7 @@ function ask() {
   if (it && Q.type === "name") P.mark[it.id] = "ask";
 }
 
-function answer(ok, given, clicked) {
+function answer(ok, given, clicked, typo) {
   if (P.lock) return;
   const it = curItem();
   P.lock = true;
@@ -262,7 +329,7 @@ function answer(ok, given, clicked) {
   if (ok) P.score++;
   P.mark = { [it.id]: "ok" };
   if (clicked && !ok) P.mark[clicked.id] = "bad";
-  P.fb = { ok, name: it.name };
+  P.fb = { ok, name: it.name, typo };
   renderPlay(); drawShapes();
   setTimeout(() => {
     P.i++; P.lock = false;
@@ -271,11 +338,30 @@ function answer(ok, given, clicked) {
   }, 1200);
 }
 
+const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
+function dist(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length];
+}
+// Capitals, accents and punctuation never count against you. With Spell check on, small typos are accepted too.
+function judge(guess, name) {
+  const g = norm(guess), t = norm(name);
+  if (g && g === t) return "exact";
+  if (Q.spell && g && t.length > 4 && dist(g, t) <= (t.length > 8 ? 2 : 1)) return "typo";
+  return "no";
+}
+
 function submitName() {
   const box = $("#guess");
   if (!box || P.lock) return;
   const val = box.value.trim();
-  answer(val.toLowerCase() === (curItem().name || "").trim().toLowerCase(), val || "(blank)");
+  const r = judge(val, curItem().name);
+  answer(r !== "no", val || "(blank)", null, r === "typo");
 }
 
 function renderPlay() {
@@ -294,7 +380,7 @@ function renderPlay() {
       : `<p class="eyebrow">Name the highlighted ${it.type === "point" ? "point" : "area"}</p>
          <div class="row"><input id="guess" placeholder="Type your answer" autocomplete="off" ${P.lock ? "disabled" : ""} />
          <button class="b pri" data-act="check" ${P.lock ? "disabled" : ""}>Check</button></div>`;
-    if (P.fb) h += `<p class="fb ${P.fb.ok ? "ok" : "no"}">${P.fb.ok ? "Correct" : `Not quite. That was ${esc(P.fb.name || "Unnamed")}.`}</p>`;
+    if (P.fb) h += `<p class="fb ${P.fb.ok ? "ok" : "no"}">${P.fb.ok ? (P.fb.typo ? `Correct. It's spelled ${esc(P.fb.name)}.` : "Correct") : `Not quite. That was ${esc(P.fb.name || "Unnamed")}.`}</p>`;
   }
   $("#pl-card").innerHTML = h;
   if ($("#guess") && !P.lock) $("#guess").focus();
@@ -339,6 +425,8 @@ const ACT = {
   check: submitName,
   again() { startPlay(Q, P.from); },
   resback() { go(P.from === "editor" ? "editor" : "library"); },
+  zin() { map.zoomIn(1); },
+  zout() { map.zoomOut(1); },
 };
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-act]");

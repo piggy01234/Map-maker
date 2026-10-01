@@ -11,7 +11,8 @@ button, input, select { font: inherit; color: inherit; }
 h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; letter-spacing: -.01em; }
 p { margin: 0; }
 
-#map { position: fixed; inset: 0; z-index: 0; background: var(--sea); }
+#map { position: fixed; inset: 0; z-index: 0; background: #d8d0bd; }
+.world { box-shadow: 0 0 0 1px #8fa3a7, 0 10px 30px rgba(31,43,46,.18); }
 .leaflet-bar { border: 1px solid var(--rule) !important; box-shadow: none !important; border-radius: 8px; overflow: hidden; }
 .leaflet-bar a { background: var(--paper); color: var(--ink); border-bottom-color: var(--rule); }
 .leaflet-tooltip { background: var(--paper); color: var(--ink); border: 1px solid var(--ink); border-radius: 4px; box-shadow: none; font: 600 12px var(--sans); padding: 2px 7px; }
@@ -122,3 +123,7 @@ select { width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid var(
 .sync { margin-top: 10px !important; font-size: 13px; color: var(--mute); display: flex; align-items: center; gap: 7px; }
 .sync:before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--rule); }
 .sync.on:before { background: var(--green); }
+
+/* drag handles for editing a selected shape */
+.hdl { background: #fff; border: 2px solid var(--gold); border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: grab; }
+.hdl.mid { background: var(--gold); border-color: #fff; opacity: .6; }

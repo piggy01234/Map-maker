@@ -71,6 +71,8 @@
           <button class="switch" role="switch" data-act="flag" data-v="reveal" aria-label="Click to reveal"><span></span></button></div>
         <div class="opt"><div><b>Shuffle questions</b><p>Ask places in a random order each round.</p></div>
           <button class="switch" role="switch" data-act="flag" data-v="shuffle" aria-label="Shuffle questions"><span></span></button></div>
+        <div class="opt"><div><b>Spell check</b><p>In Name the Location quizzes, accept small typos, like "Pariss" for "Paris". Capitals and accents never matter.</p></div>
+          <button class="switch" role="switch" data-act="flag" data-v="spell" aria-label="Spell check"><span></span></button></div>
         <label class="field" id="region-f" hidden>Map view <select id="q-region" data-in="region"></select></label>
       </div>
     </aside>
@@ -84,6 +86,10 @@
       <span id="pl-prog" class="status"></span>
     </header>
     <div class="prog"><i id="pl-bar"></i></div>
+    <nav class="rail" aria-label="Zoom">
+      <button class="b icon" data-act="zin" title="Zoom in" aria-label="Zoom in" data-ic="zoomIn"></button>
+      <button class="b icon" data-act="zout" title="Zoom out" aria-label="Zoom out" data-ic="zoomOut"></button>
+    </nav>
     <div id="pl-card" class="pcard"></div>
   </section>
 

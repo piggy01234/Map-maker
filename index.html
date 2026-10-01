@@ -31,9 +31,19 @@
   <section id="s-library" class="screen page">
     <header class="lib-head">
       <div><h1>Map Quiz Maker</h1><p>Build location quizzes on a blank world map, then hand them over to play.</p><p id="sync" class="sync"></p></div>
-      <button class="b pri" data-act="new" data-ic="plus">New quiz</button>
+      <div class="btns"><button class="b" data-act="explore" data-ic="search">Explore</button><button class="b pri" data-act="new" data-ic="plus">New quiz</button></div>
     </header>
     <div id="lib-grid" class="grid"></div>
+  </section>
+
+  <!-- 1b · EXPLORE (search shared quizzes) -->
+  <section id="s-explore" class="screen page" hidden>
+    <header class="lib-head">
+      <div><button class="link" data-act="exback">&lsaquo; Your quizzes</button><h1>Explore</h1><p>Search quizzes other people have shared, play them, or save a copy to edit.</p></div>
+    </header>
+    <div class="search-wrap"><input id="ex-q" class="search" type="search" data-in="search" placeholder="Search by title or author" aria-label="Search shared quizzes" autocomplete="off" /></div>
+    <p id="ex-note" class="note"></p>
+    <div id="ex-grid" class="grid"></div>
   </section>
 
   <!-- 2 · EDITOR -->
@@ -73,6 +83,14 @@
           <button class="switch" role="switch" data-act="flag" data-v="shuffle" aria-label="Shuffle questions"><span></span></button></div>
         <div class="opt"><div><b>Spell check</b><p>In Name the Location quizzes, accept small typos, like "Pariss" for "Paris". Capitals and accents never matter.</p></div>
           <button class="switch" role="switch" data-act="flag" data-v="spell" aria-label="Spell check"><span></span></button></div>
+        <div class="opt"><div><b>Share this quiz</b><p>Anyone can find it in Explore and play it by link. Only you can edit it. Needs cloud sync.</p></div>
+          <button class="switch" role="switch" data-act="flag" data-v="shared" aria-label="Share this quiz"><span></span></button></div>
+        <div id="share-box" hidden>
+          <label class="field">Your name <span class="faint">(shown publicly, optional)</span>
+            <input id="q-author" class="text" data-in="author" maxlength="30" placeholder="Anonymous" autocomplete="off" /></label>
+          <label class="field">Share link
+            <span class="copyrow"><input id="share-url" class="text" readonly /><button class="b" data-act="copy">Copy</button></span></label>
+        </div>
         <label class="field" id="region-f" hidden>Map view <select id="q-region" data-in="region"></select></label>
       </div>
     </aside>
@@ -107,7 +125,7 @@
     </div>
   </section>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

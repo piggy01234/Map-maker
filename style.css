@@ -127,3 +127,15 @@ select { width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid var(
 /* drag handles for editing a selected shape */
 .hdl { background: #fff; border: 2px solid var(--gold); border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: grab; }
 .hdl.mid { background: var(--gold); border-color: #fff; opacity: .6; }
+
+/* explore + sharing */
+.btns { display: flex; gap: 8px; }
+.lib-head .link { padding: 0 0 8px; display: block; }
+.search-wrap { max-width: 1040px; margin: 24px auto 0; padding: 0 24px; }
+.search { width: 100%; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px; background: #fff; font-size: 16px; }
+.search:focus { outline: 2px solid var(--ink); border-color: transparent; }
+.note { max-width: 1040px; margin: 12px auto 0; padding: 0 24px; color: var(--mute); min-height: 1.4em; }
+.text { width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid var(--rule); border-radius: 8px; background: #fff; }
+.copyrow { display: flex; gap: 8px; margin-top: 6px; }
+.copyrow .text { margin-top: 0; flex: 1; min-width: 0; }
+.faint { color: var(--mute); font-weight: 400; font-size: 13px; }

@@ -24,6 +24,7 @@ const PATHS = {
   retry: '<path d="M3 12a9 9 0 109-9 9 9 0 00-7 3M3 4v5h5"/>',
   zoomIn: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
   zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
 };
 const ic = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${PATHS[n]}</svg>`;
 $$("[data-ic]").forEach((el) => el.insertAdjacentHTML("afterbegin", ic(el.dataset.ic)));
@@ -32,6 +33,8 @@ $$("[data-ic]").forEach((el) => el.insertAdjacentHTML("afterbegin", ic(el.datase
 let LIB = [];
 try { LIB = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(LIB)); } catch (e) {} };
+let NAME = "", ME = "";   // NAME: author name shown on shared quizzes. ME: my anonymous Supabase user id.
+try { NAME = localStorage.getItem(KEY + ".name") || ""; } catch (e) {}
 let Q = null;       // quiz being edited or played
 let P = null;       // current play session
 const V = { screen: "library", tool: "point", draft: [], sel: null, revealed: {}, armed: null, region: "World" };
@@ -62,6 +65,24 @@ function explain(e) {
   return m;
 }
 
+const okPt = (p) => Array.isArray(p) && p.length === 2 && isFinite(p[0]) && isFinite(p[1]);
+function fromRow(r) {
+  if (!r || !/^[\w-]{1,40}$/.test(r.id)) return null;
+  const d = r.data || {};
+  const items = (Array.isArray(d.items) ? d.items : [])
+    .filter((it) => it && (it.type === "point" || it.type === "area") && Array.isArray(it.pts) && it.pts.length >= (it.type === "area" ? 3 : 1) && it.pts.every(okPt))
+    .map((it) => ({
+      id: String(it.id || "").replace(/[^\w-]/g, "").slice(0, 20) || uid(), type: it.type,
+      pts: (it.type === "point" ? [it.pts[0]] : it.pts).map((p) => [+p[0], +p[1]]), name: String(it.name || "").slice(0, 60),
+    }));
+  return {
+    id: r.id, title: String(r.title || "Untitled quiz").slice(0, 60), updated: Date.parse(r.updated_at) || Date.now(),
+    type: d.type === "name" ? "name" : "find", reveal: !!d.reveal, shuffle: !!d.shuffle, spell: !!d.spell,
+    shared: d.shared === true, author: String(d.author || "").slice(0, 30), size: Math.min(30, Math.max(4, +d.size || 10)), items,
+  };
+}
+const shareUrl = (q) => location.origin + location.pathname + "?quiz=" + q.id;
+
 async function pushQuiz(q) {
   if (!CLOUD) return;
   const { id, title, updated, ...data } = q;
@@ -80,10 +101,12 @@ async function initCloud() {
   setSync("Connecting to Supabase…");
   try {
     const { data: s } = await sb.auth.getSession();
-    if (!s.session) { const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error; }
-    const { data, error } = await sb.from("quizzes").select("*");
+    let user = s.session && s.session.user;
+    if (!user) { const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error; user = r.data.user; }
+    ME = user.id;
+    const { data, error } = await sb.from("quizzes").select("*").eq("owner", ME);   // only my own; other people's shared quizzes come from Explore
     if (error) throw error;
-    const cloud = data.map((r) => ({ ...r.data, id: r.id, title: r.title, updated: Date.parse(r.updated_at) }));
+    const cloud = data.map(fromRow).filter(Boolean);
     const have = new Set(cloud.map((q) => q.id));
     const localOnly = LIB.filter((q) => !have.has(q.id));      // first run: upload what was saved on this device
     LIB = [...cloud, ...localOnly]; persist(); CLOUD = true;
@@ -95,6 +118,7 @@ async function initCloud() {
     setSync("Cloud unavailable: " + explain(e));
   }
   if (V.screen === "library") renderLibrary();
+  await openFromLink();
 }
 
 const touch = () => {
@@ -196,22 +220,22 @@ function drawDraft() {
 // ---------- Screens ----------
 function go(screen) {
   V.screen = screen; V.draft = [];
-  ["library", "editor", "play", "results"].forEach((n) => ($("#s-" + n).hidden = n !== screen));
-  ({ library: renderLibrary, editor: renderEditor, play: renderPlay, results: renderResults })[screen]();
+  ["library", "explore", "editor", "play", "results"].forEach((n) => ($("#s-" + n).hidden = n !== screen));
+  ({ library: renderLibrary, explore: openExplore, editor: renderEditor, play: renderPlay, results: renderResults })[screen]();
   requestAnimationFrame(() => { map.invalidateSize(); if (screen === "editor" || screen === "play") fit(); drawShapes(); drawDraft(); });
 }
 
 // 1 · Library
-function renderLibrary() {
-  const dots = (q) => q.items.map((it) => {
+const dots = (q) => q.items.map((it) => {
     const n = it.pts.length, y = it.pts.reduce((s, p) => s + p[0], 0) / n, x = it.pts.reduce((s, p) => s + p[1], 0) / n;
     return `<i style="left:${(x / W) * 100}%;top:${(1 - y / H) * 100}%"></i>`;
   }).join("");
+function renderLibrary() {
   const cards = LIB.slice().sort((a, b) => b.updated - a.updated).map((q) => `
     <article class="card">
       <div class="thumb">${dots(q)}</div>
       <h3>${esc(q.title)}</h3>
-      <p class="meta">${q.items.length} ${q.items.length === 1 ? "place" : "places"} · ${modeLabel(q)}</p>
+      <p class="meta">${q.items.length} ${q.items.length === 1 ? "place" : "places"} · ${modeLabel(q)}${q.shared ? " · Shared" : ""}</p>
       <div class="acts">
         <button class="b pri" data-act="play" data-id="${q.id}" ${q.items.length ? "" : "disabled"}>${ic("play")}Play</button>
         <button class="b" data-act="open" data-id="${q.id}">${ic("edit")}Edit</button>
@@ -230,6 +254,7 @@ function renderEditor() {
   $("#region-f").hidden = !multi;
   if (multi) $("#q-region").innerHTML = Object.keys(REGIONS).map((r) => `<option>${r}</option>`).join("");
   $("#ed-status").textContent = "Saved";
+  $("#share-box").hidden = !Q.shared; $("#q-author").value = Q.author || ""; $("#share-url").value = shareUrl(Q);
   setTab(V.tab || "places"); syncTools(); renderList();
 }
 
@@ -395,10 +420,57 @@ function renderResults() {
     <li class="${r.ok ? "ok" : "no"}">${ic(r.ok ? "check" : "x")}<b>${esc(r.name || "Unnamed")}</b>${r.ok ? "" : `<span>You said ${esc(r.given)}</span>`}</li>`).join("");
 }
 
+// 5 · Explore: search quizzes other people have shared
+let EX = [], exTimer = 0, exSeq = 0;
+
+function openExplore() { renderExplore(); searchPublic(); }
+
+async function searchPublic() {
+  const note = $("#ex-note");
+  if (!CLOUD) { EX = []; renderExplore(); note.textContent = "Explore needs Supabase sync. " + $("#sync").textContent; return; }
+  const term = $("#ex-q").value.replace(/[%,()*"\\]/g, " ").trim();
+  const seq = ++exSeq;
+  note.textContent = "Searching…";
+  let qy = sb.from("quizzes").select("id,title,data,updated_at").eq("data->>shared", "true").order("updated_at", { ascending: false }).limit(40);
+  if (term) qy = qy.or(`title.ilike.*${term}*,data->>author.ilike.*${term}*`);
+  const { data, error } = await qy;
+  if (seq !== exSeq) return;                                 // a newer search replaced this one
+  if (error) { note.textContent = "Search failed: " + explain(error); return; }
+  EX = (data || []).map(fromRow).filter(Boolean);
+  renderExplore();
+  note.textContent = EX.length ? "" : term ? "No shared quizzes match that." : "Nothing has been shared yet. Open a quiz, go to Quiz settings and switch on Share.";
+}
+
+function renderExplore() {
+  const mine = new Set(LIB.map((q) => q.id));
+  $("#ex-grid").innerHTML = EX.map((q) => `
+    <article class="card">
+      <div class="thumb">${dots(q)}</div>
+      <h3>${esc(q.title)}</h3>
+      <p class="meta">By ${esc(q.author || "Anonymous")} · ${q.items.length} ${q.items.length === 1 ? "place" : "places"} · ${modeLabel(q)}</p>
+      <div class="acts">
+        <button class="b pri" data-act="explay" data-id="${q.id}" ${q.items.length ? "" : "disabled"}>${ic("play")}Play</button>
+        <button class="b" data-act="excopy" data-id="${q.id}" ${mine.has(q.id) ? "disabled" : ""}>${mine.has(q.id) ? "In your library" : ic("plus") + "Save a copy"}</button>
+      </div>
+    </article>`).join("");
+}
+
+// A share link looks like  yoursite/?quiz=ID  and opens straight into the quiz
+async function openFromLink() {
+  const id = new URLSearchParams(location.search).get("quiz");
+  if (!id) return;
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  const { data } = await sb.from("quizzes").select("id,title,data,updated_at").eq("id", id).eq("data->>shared", "true").maybeSingle();
+  const q = fromRow(data);
+  if (q && q.items.length) startPlay(q, "link");
+  else setSync("That shared quiz wasn't found. The owner may have made it private.");
+}
+const backTo = () => (P.from === "editor" ? "editor" : P.from === "explore" || P.from === "link" ? "explore" : "library");
+
 // ---------- Actions (one delegated click handler) ----------
 const ACT = {
   new() {
-    Q = { id: uid(), title: "Untitled quiz", type: "find", reveal: false, shuffle: false, size: 10, items: [], updated: Date.now() };
+    Q = { id: uid(), title: "Untitled quiz", type: "find", reveal: false, shuffle: false, size: 10, spell: false, shared: false, author: NAME, items: [], updated: Date.now() };
     LIB.push(Q); persist(); V.sel = null; V.tool = "point"; go("editor");
   },
   open(d) { Q = LIB.find((q) => q.id === d.id); V.sel = null; go("editor"); },
@@ -414,17 +486,37 @@ const ACT = {
   preview() { if (Q.items.length) startPlay(Q, "editor"); else $("#ed-status").textContent = "Add a place first"; },
   tool(d) { V.tool = d.v; V.draft = []; syncTools(); drawDraft(); drawShapes(); },
   tab(d) { setTab(d.v); },
-  flag(d, el) { Q[d.v] = !Q[d.v]; el.setAttribute("aria-checked", Q[d.v]); touch(); },
+  flag(d, el) {
+    if (d.v === "shared" && !CLOUD) { $("#ed-status").textContent = "Sharing needs cloud sync"; return; }
+    Q[d.v] = !Q[d.v]; el.setAttribute("aria-checked", Q[d.v]);
+    if (d.v === "shared") { $("#share-box").hidden = !Q.shared; $("#share-url").value = shareUrl(Q); }
+    touch();
+  },
+  copy(d, el) {
+    const box = $("#share-url"); box.select();
+    const ok = () => { el.textContent = "Copied"; setTimeout(() => (el.textContent = "Copy"), 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(box.value).then(ok, () => { document.execCommand("copy"); ok(); });
+    else { document.execCommand("copy"); ok(); }
+  },
+  explore() { go("explore"); },
+  exback() { go("library"); },
+  explay(d) { const q = EX.find((x) => x.id === d.id); if (q) startPlay(q, "explore"); },
+  excopy(d) {
+    const src = EX.find((x) => x.id === d.id); if (!src) return;
+    const copy = { ...JSON.parse(JSON.stringify(src)), id: uid(), shared: false, author: NAME, updated: Date.now() };
+    LIB.push(copy); persist(); pushQuiz(copy); renderExplore();
+    $("#ex-note").textContent = `Saved "${src.title}" to your library. You can edit your copy.`;
+  },
   rm(d) { Q.items = Q.items.filter((x) => x.id !== d.id); if (V.sel === d.id) V.sel = null; touch(); renderList(); drawShapes(); },
   clear() { Q.items = []; V.sel = null; touch(); renderList(); drawShapes(); },
   undo() { V.draft.pop(); drawDraft(); },
   finish: finishArea,
   cancel() { V.draft = []; drawDraft(); },
-  quit() { go(P.from === "editor" ? "editor" : "library"); },
+  quit() { go(backTo()); },
   hideAll() { V.revealed = {}; drawShapes(); },
   check: submitName,
   again() { startPlay(Q, P.from); },
-  resback() { go(P.from === "editor" ? "editor" : "library"); },
+  resback() { go(backTo()); },
   zin() { map.zoomIn(1); },
   zout() { map.zoomOut(1); },
 };
@@ -438,6 +530,8 @@ document.addEventListener("click", (e) => {
 const INPUT = {
   title(el) { Q.title = el.value; touch(); },
   type(el) { Q.type = el.value; touch(); },
+  search() { clearTimeout(exTimer); exTimer = setTimeout(searchPublic, 300); },
+  author(el) { Q.author = el.value; NAME = el.value; try { localStorage.setItem(KEY + ".name", NAME); } catch (e) {} touch(); },
   region(el) { V.region = el.value; fit(); },
   size(el) { Q.size = +el.value; $("#size-out").textContent = Q.size; touch(); drawShapes(); },
   name(el) {
